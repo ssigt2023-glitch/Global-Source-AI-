@@ -1,0 +1,7 @@
+{
+  "name": "GlobalSource Enterprise",
+  "description": "Enterprise-grade supplier and trader discovery engine with image recognition and global grounding.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
