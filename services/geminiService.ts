@@ -4,6 +4,26 @@ import { SearchResult, Supplier, GroundingSource, SourcingParams, ReliabilityRep
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+/**
+ * Utility to attempt a basic repair of truncated JSON strings.
+ * This is a safety measure for long model outputs.
+ */
+const attemptJsonRepair = (str: string): string => {
+  let cleaned = str.trim();
+  // If it doesn't end with } or ], try to force close it
+  if (!cleaned.endsWith('}') && !cleaned.endsWith(']')) {
+    // This is very rudimentary, but for structured objects it can help
+    // We count braces and try to close them.
+    let openBraces = (cleaned.match(/\{/g) || []).length;
+    let closeBraces = (cleaned.match(/\}/g) || []).length;
+    while (openBraces > closeBraces) {
+      cleaned += '}';
+      closeBraces++;
+    }
+  }
+  return cleaned;
+};
+
 export const findSuppliers = async (params: SourcingParams): Promise<SearchResult> => {
   const { material, keywords, countryFilter, additionalRequirements, imageData, imageMimeType } = params;
 
@@ -88,14 +108,19 @@ export const findSuppliers = async (params: SourcingParams): Promise<SearchResul
 
 export const analyzeCompanyReliability = async (supplier: Supplier): Promise<ReliabilityReport> => {
   const prompt = `Act as a professional Credit Score Inspector and Company Reliability Analyst. 
-  Perform a deep-dive analysis on the following company:
+  Perform a deep-dive analysis on:
   Name: ${supplier.name}
   Website: ${supplier.website}
   Country: ${supplier.country}
-  Address: ${supplier.address}
 
-  Search for business registration validity, shipment history, credit signals, and market reputation. 
-  You MUST return the results strictly in JSON format matching the schema provided.`;
+  CRITICAL CONSTRAINTS:
+  1. Use Google Search to verify business registration, litigation, and shipment consistency.
+  2. Each JSON text field MUST be concise (max 150 chars). 
+  3. Avoid special characters (like unescaped quotes) that break JSON.
+  4. If information is missing, use "Record not found" rather than hallucinating.
+  5. The output MUST be valid JSON. 
+
+  Analyze: Snapshots, Score (0-100), Financials, Trade History, Compliance, Reputation, Risk Flags, Verdict, and Mitigation Strategy.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -103,6 +128,9 @@ export const analyzeCompanyReliability = async (supplier: Supplier): Promise<Rel
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingBudget: 4000 },
+        maxOutputTokens: 4000,
+        temperature: 0.1, // Lower temperature for more stable JSON
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -180,7 +208,30 @@ export const analyzeCompanyReliability = async (supplier: Supplier): Promise<Rel
       }
     });
 
-    return JSON.parse(response.text?.trim() || "{}");
+    let jsonStr = response.text?.trim() || "";
+    
+    if (!jsonStr) {
+      throw new Error("Empty response from analysis engine.");
+    }
+
+    // Try to fix common truncation issues
+    if (!jsonStr.endsWith('}')) {
+       console.warn("JSON appear truncated, attempting repair...");
+       jsonStr = attemptJsonRepair(jsonStr);
+    }
+
+    try {
+      return JSON.parse(jsonStr);
+    } catch (parseError) {
+      console.error("JSON Parse Error after repair attempt:", parseError);
+      // If parsing fails even after repair, we look for a substring that might be valid
+      const start = jsonStr.indexOf('{');
+      const end = jsonStr.lastIndexOf('}');
+      if (start !== -1 && end !== -1 && end > start) {
+        return JSON.parse(jsonStr.substring(start, end + 1));
+      }
+      throw parseError;
+    }
   } catch (error) {
     console.error("Reliability Analysis Error:", error);
     throw error;

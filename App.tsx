@@ -25,6 +25,7 @@ const App: React.FC = () => {
   // Reliability Analysis State
   const [activeAnalysis, setActiveAnalysis] = useState<ReliabilityReport | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,13 +87,14 @@ const App: React.FC = () => {
 
   const handleAnalyzeCredit = async (supplier: Supplier) => {
     setAnalyzing(true);
+    setAnalysisError(null);
     setActiveAnalysis(null);
     try {
       const report = await analyzeCompanyReliability(supplier);
       setActiveAnalysis(report);
     } catch (err) {
       console.error("Analysis failed", err);
-      // Fallback or error state could be handled here
+      setAnalysisError("The deep-web forensic scan returned an invalid data structure. This usually happens when search grounding is overloaded. Please try again in a moment.");
     } finally {
       setAnalyzing(false);
     }
@@ -334,13 +336,15 @@ const App: React.FC = () => {
       )}
 
       {/* Reliability/Credit Modal */}
-      {(analyzing || activeAnalysis) && (
+      {(analyzing || activeAnalysis || analysisError) && (
         <ReliabilityReportModal
           loading={analyzing}
           report={activeAnalysis}
+          error={analysisError}
           onClose={() => {
             setActiveAnalysis(null);
             setAnalyzing(false);
+            setAnalysisError(null);
           }}
         />
       )}

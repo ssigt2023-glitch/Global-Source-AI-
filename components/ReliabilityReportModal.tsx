@@ -5,11 +5,12 @@ import { ReliabilityReport } from '../types';
 interface ReliabilityReportModalProps {
   report: ReliabilityReport | null;
   loading: boolean;
+  error?: string | null;
   onClose: () => void;
 }
 
-const ReliabilityReportModal: React.FC<ReliabilityReportModalProps> = ({ report, loading, onClose }) => {
-  if (!loading && !report) return null;
+const ReliabilityReportModal: React.FC<ReliabilityReportModalProps> = ({ report, loading, error, onClose }) => {
+  if (!loading && !report && !error) return null;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -53,6 +54,17 @@ const ReliabilityReportModal: React.FC<ReliabilityReportModalProps> = ({ report,
             <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-8"></div>
             <h3 className="text-xl font-bold mb-2">Deep-Web Forensic Scanning...</h3>
             <p className="text-slate-500 max-w-md">Querying trade registers, shipment logs, and legal databases for real-time verification.</p>
+          </div>
+        ) : error ? (
+          <div className="flex-1 p-20 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-6">
+              <i className="fas fa-triangle-exclamation text-2xl"></i>
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Analysis Interrupted</h3>
+            <p className="text-slate-500 max-w-md mb-8">{error}</p>
+            <button onClick={onClose} className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all">
+              Return to Results
+            </button>
           </div>
         ) : report && (
           <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
@@ -113,11 +125,11 @@ const ReliabilityReportModal: React.FC<ReliabilityReportModalProps> = ({ report,
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-400 font-black uppercase tracking-tight mb-1">Legal Entity</div>
-                    <div className="text-sm font-bold">{report.snapshot?.legalName || 'N/A'}</div>
+                    <div className="text-sm font-bold truncate">{report.snapshot?.legalName || 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-400 font-black uppercase tracking-tight mb-1">Ownership</div>
-                    <div className="text-sm font-bold">{report.snapshot?.ownership || 'N/A'}</div>
+                    <div className="text-sm font-bold truncate">{report.snapshot?.ownership || 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-400 font-black uppercase tracking-tight mb-1">Reg. Year</div>
@@ -125,7 +137,7 @@ const ReliabilityReportModal: React.FC<ReliabilityReportModalProps> = ({ report,
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-400 font-black uppercase tracking-tight mb-1">Location</div>
-                    <div className="text-sm font-bold">{report.snapshot?.location || 'N/A'}</div>
+                    <div className="text-sm font-bold truncate">{report.snapshot?.location || 'N/A'}</div>
                   </div>
                 </div>
 
@@ -189,7 +201,7 @@ const ReliabilityReportModal: React.FC<ReliabilityReportModalProps> = ({ report,
             onClick={onClose}
             className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm hover:bg-slate-800 transition-all shadow-xl shadow-slate-100"
           >
-            Acknowledge Analysis
+            {error ? 'Close Error' : 'Acknowledge Analysis'}
           </button>
         </div>
       </div>
