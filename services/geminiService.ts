@@ -1,8 +1,5 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { SearchResult, Supplier, GroundingSource, SourcingParams, ReliabilityReport } from "../types";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
  * Utility to attempt a basic repair of truncated JSON strings.
@@ -10,21 +7,38 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
  */
 const attemptJsonRepair = (str: string): string => {
   let cleaned = str.trim();
-  // If it doesn't end with } or ], try to force close it
+  // Find the first actual JSON character
+  if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
+      const firstBrace = cleaned.indexOf('{');
+      const firstBracket = cleaned.indexOf('[');
+      if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+          cleaned = cleaned.substring(firstBrace);
+      } else if (firstBracket !== -1) {
+          cleaned = cleaned.substring(firstBracket);
+      }
+  }
+  
+  // Basic closing tag repair
   if (!cleaned.endsWith('}') && !cleaned.endsWith(']')) {
-    // This is very rudimentary, but for structured objects it can help
-    // We count braces and try to close them.
     let openBraces = (cleaned.match(/\{/g) || []).length;
     let closeBraces = (cleaned.match(/\}/g) || []).length;
     while (openBraces > closeBraces) {
       cleaned += '}';
       closeBraces++;
     }
+    
+    let openBrackets = (cleaned.match(/\[/g) || []).length;
+    let closeBrackets = (cleaned.match(/\]/g) || []).length;
+    while (openBrackets > closeBrackets) {
+      cleaned += ']';
+      closeBrackets++;
+    }
   }
   return cleaned;
 };
 
 export const findSuppliers = async (params: SourcingParams): Promise<SearchResult> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const { material, keywords, countryFilter, additionalRequirements, imageData, imageMimeType } = params;
 
   const prompt = `Act as an expert global procurement officer. Find the most reliable suppliers and traders for the following request:
@@ -84,10 +98,11 @@ export const findSuppliers = async (params: SourcingParams): Promise<SearchResul
       },
     });
 
-    const jsonStr = response.text?.trim() || "{}";
+    const text = response.text || "{}";
+    const jsonStr = attemptJsonRepair(text);
     const data = JSON.parse(jsonStr);
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = groundingChunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
@@ -107,20 +122,15 @@ export const findSuppliers = async (params: SourcingParams): Promise<SearchResul
 };
 
 export const analyzeCompanyReliability = async (supplier: Supplier): Promise<ReliabilityReport> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Act as a professional Credit Score Inspector and Company Reliability Analyst. 
   Perform a deep-dive analysis on:
   Name: ${supplier.name}
   Website: ${supplier.website}
   Country: ${supplier.country}
 
-  CRITICAL CONSTRAINTS:
-  1. Use Google Search to verify business registration, litigation, and shipment consistency.
-  2. Each JSON text field MUST be concise (max 150 chars). 
-  3. Avoid special characters (like unescaped quotes) that break JSON.
-  4. If information is missing, use "Record not found" rather than hallucinating.
-  5. The output MUST be valid JSON. 
-
-  Analyze: Snapshots, Score (0-100), Financials, Trade History, Compliance, Reputation, Risk Flags, Verdict, and Mitigation Strategy.`;
+  Analyze: Snapshots, Score (0-100), Financials, Trade History, Compliance, Reputation, Risk Flags, Verdict, and Mitigation Strategy.
+  The output MUST be valid JSON.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -129,8 +139,7 @@ export const analyzeCompanyReliability = async (supplier: Supplier): Promise<Rel
       config: {
         tools: [{ googleSearch: {} }],
         thinkingConfig: { thinkingBudget: 4000 },
-        maxOutputTokens: 4000,
-        temperature: 0.1, // Lower temperature for more stable JSON
+        temperature: 0.1,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -208,30 +217,9 @@ export const analyzeCompanyReliability = async (supplier: Supplier): Promise<Rel
       }
     });
 
-    let jsonStr = response.text?.trim() || "";
-    
-    if (!jsonStr) {
-      throw new Error("Empty response from analysis engine.");
-    }
-
-    // Try to fix common truncation issues
-    if (!jsonStr.endsWith('}')) {
-       console.warn("JSON appear truncated, attempting repair...");
-       jsonStr = attemptJsonRepair(jsonStr);
-    }
-
-    try {
-      return JSON.parse(jsonStr);
-    } catch (parseError) {
-      console.error("JSON Parse Error after repair attempt:", parseError);
-      // If parsing fails even after repair, we look for a substring that might be valid
-      const start = jsonStr.indexOf('{');
-      const end = jsonStr.lastIndexOf('}');
-      if (start !== -1 && end !== -1 && end > start) {
-        return JSON.parse(jsonStr.substring(start, end + 1));
-      }
-      throw parseError;
-    }
+    const text = response.text || "";
+    const jsonStr = attemptJsonRepair(text);
+    return JSON.parse(jsonStr);
   } catch (error) {
     console.error("Reliability Analysis Error:", error);
     throw error;
